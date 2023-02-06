@@ -89,13 +89,18 @@ class Quad:
     def update(self, u, dt): # u : individual thrust (4,)
         
         if self.rotor_v is not None:
-            rotor_v_ref = np.sqrt(u/Quad.ct)
-            rotor_v_dot = 1/Quad.tau * (rotor_v_ref - self.rotor_v)
+            # return actual control
             self.u = Quad.ct * self.rotor_v**2
             
             # update rotor_v using euler int (rk4 later)
-            rotor_v_next = self.rotor_v + rotor_v_dot * dt
-            self.rotor_v = rotor_v_next
+            k1 = self.f_rotor(self.rotor_v, u)
+            v_ = self.rotor_v + dt/2 * k1
+            k2 = self.f_rotor(v_,u)
+            v_ = self.rotor_v + dt/2 * k2
+            k3 = self.f_rotor(v_,u)
+            v_ = self.rotor_v + dt * k3
+            k4 = self.f_rotor(v_,u)
+            self.rotor_v = self.rotor_v + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
         else:
             self.u = u
         
@@ -114,7 +119,7 @@ class Quad:
         k2 = [self.f_x(X_), self.f_v(X_, self.u, f_d), self.f_q(X_), self.f_W(X_, self.u, t_d)]
         X_ = [X[i] + dt / 2 * k2[i] for i in range(4)]      
         k3 = [self.f_x(X_), self.f_v(X_, self.u, f_d), self.f_q(X_), self.f_W(X_, self.u, t_d)]
-        X_ = [X[i] + dt / 2 * k3[i] for i in range(4)]
+        X_ = [X[i] + dt * k3[i] for i in range(4)]
         k4 = [self.f_x(X_), self.f_v(X_, self.u, f_d), self.f_q(X_), self.f_W(X_, self.u, t_d)]
         X = [X[i] + dt * (1.0 / 6.0 * k1[i] + 2.0 / 6.0 * k2[i] + 2.0 / 6.0 * k3[i] + 1.0 / 6.0 * k4[i]) for i in
              range(4)]
@@ -150,3 +155,7 @@ class Quad:
             1 / Quad.J[1] * (u.dot(self.G3) + t_d[1] + (Quad.J[2] - Quad.J[0]) * W[2] * W[0]),
             1 / Quad.J[2] * (u.dot(self.G4) + t_d[2] + (Quad.J[0] - Quad.J[1]) * W[0] * W[1])
         ]).squeeze()
+
+    def f_rotor(self, rotor_v, u):
+        rotor_v_ref = np.sqrt(u/Quad.ct)
+        return 1/Quad.tau * (rotor_v_ref - rotor_v)

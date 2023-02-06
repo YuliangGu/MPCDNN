@@ -5,7 +5,7 @@ from traj import *
 
 sim_dt = 0.05  #simulation sample time
 mpc_dt = 0.1   # mpc sample time
-quad = Quad(noisy=False, drag=False, 
+quad = Quad(noisy=False, drag=True, 
                 motor_noisy=False, rotor_dyn=False, quad_config='Default')
 
 """ generate reference trajectory and controls """
@@ -27,7 +27,8 @@ quadmpc = QuadMPC(quad, t_horizon=t_horizon, N_nodes=N_nodes,
                 Q_cost=None, R_cost=None, opt_dt = mpc_dt, sim_dt=sim_dt,
                  NN_model=False, drag_model=False)
 
-quadmpc.set_ref(traj_ref=traj_ref, u_ref=u_ref) # load reference trajectory
+""" start the simulation and save the results"""
+quadmpc.set_ref(traj_ref=traj_ref, u_ref=u_ref)     
 x, u = quadmpc.simulate()
+np.savez('data/test.npz', x, u)
 
-np.savez('test', x, u)
