@@ -22,9 +22,9 @@ class QuadOpt:
         self.N = control_nodes 
         
         if Q_cost is None:
-            self.Q = np.array([5.0,5.0,10.0,0.05,0.05,0.05,0.1,0.1,0.1,0.1,0.05,0.05,0.05])
+            self.Q = np.array([10.0,10.0,20.0,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05])
         if R_cost is None:
-            self.R = 0.1 * np.ones(4)
+            self.R = 0.5 * np.ones(4)
             
         # Declare model variables
         self.x = cs.MX.sym('x', 3)   # position
@@ -133,7 +133,9 @@ class QuadOpt:
             X_ref = [[0, 0, 0], [1, 0, 0, 0], [0, 0, 0], [0, 0, 0]]
         if u_ref is None:
             u_ref = [0, 0, 0, 0]   
-        # should convert the ref velocity to the bodyframe?
+        # convert the ref velocity to the bodyframe
+        v_b = v_dot_q(X_ref[3:6], quaternion_inverse(X_ref[6:10]))
+        X_ref = np.concatenate((X_ref[:3], v_b, X_ref[6:]))
         self.X_ref = X_ref
         self.u_ref = u_ref
     
@@ -144,7 +146,7 @@ class QuadOpt:
             X_ref_traj = np.concatenate((X_ref_traj, np.expand_dims(X_ref_traj[-1, :], 0)), 0)
             if u_ref_traj is not None:
                 u_ref_traj = np.concatenate((u_ref_traj, np.expand_dims(u_ref_traj[-1, :], 0)), 0)         
-#         stacked_X_ref_traj = np.concatenate([x for x in X_ref_traj], 1)
+        # stacked_X_ref_traj = np.concatenate([x for x in X_ref_traj], 1)
         # Tranform to velocity to body frame?
         self.X_ref_traj = X_ref_traj
         self.u_ref_traj = u_ref_traj
@@ -176,14 +178,14 @@ class QuadOpt:
         w0 += list(X_init)
         
         # Formulate NLP
-        m = 5 # RK4 steps per integration
+        m = 4 # RK4 steps per integration
         for k in range(self.N):
             # New NLP variable for the control
             Uk = cs.MX.sym('U_'+ str(k), 4)
             w += [Uk]
             lbw += self.u_lb
             ubw += self.u_ub
-            w0 += [0,0,0,0]  # a guess for the primal-dual
+            w0 += self.u_ub  # a guess for the primal-dual
         
             # set reference and integrate till the end of the interval
             self.set_reference_state(self.X_ref_traj[k,:],self.u_ref_traj[k,:])
@@ -195,8 +197,8 @@ class QuadOpt:
             # New NLP variable for state at end of interval
             Xk = cs.MX.sym('X_' + str(k+1), 13)
             w += [Xk]
-            lbw += [-3,-3,-3,-3,-3,-3,-3,-3,-3,-3,-3,-3,-3]
-            ubw += [3,3,3,3,3,3,3,3,3,3,3,3,3]
+            lbw += [-3] * 13
+            ubw += [3] * 13
             w0  += [0,0,0,0,0,0,0,0,0,0,0,0,0]
             
             # Add equality constraint
@@ -205,12 +207,13 @@ class QuadOpt:
             ubg += [0,0,0,0,0,0,0,0,0,0,0,0,0]
         
         # Create an NLP solver
+        mysolver = 'sqpmethod'
+        # mysolver = 'ipopt'
+        opts = {}
+        opts['qpsol_options'] = {'error_on_fail': False}
+
         prob = {'f': J, 'x': cs.vertcat(*w), 'g': cs.vertcat(*g)}
-        solver = cs.nlpsol('solver', 'ipopt', prob)
+        solver = cs.nlpsol('solver', mysolver, prob, opts)
         sol = solver(x0=w0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg)
         
         return sol['x'].full().flatten()
-#         return w0
-        # Solve the NLP
-#         sol = solver(x0=w0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg)
-#         w_opt = sol['x'].full().flatten()

@@ -3,13 +3,13 @@ from quadrotorOCP import QuadOpt
 from quadrotorMPC import QuadMPC
 from traj import *
 
-sim_dt = 0.05  #simulation sample time
+sim_dt = 0.025  #simulation sample time
 mpc_dt = 0.1   # mpc sample time
-quad = Quad(noisy=False, drag=True, 
+quad = Quad(noisy=False, drag=False, 
                 motor_noisy=False, rotor_dyn=False, quad_config='Default')
 
 """ generate reference trajectory and controls """
-traj_ref, t_ref, u_ref = loop_trajectory(quad,mpc_dt,plot=False,yawing=True)
+traj_ref, t_ref, u_ref = loop_trajectory(quad,mpc_dt,plot=False,yawing=False)
 x_ref = traj_ref[:,:3]
 q_ref = traj_ref[:,3:7]
 v_ref = traj_ref[:,7:10]
@@ -21,7 +21,7 @@ X_init = traj_ref[0,:]
 quad.set_state(X_init)
 
 """ initilize the MPC """
-N_nodes = 10
+N_nodes = 5
 t_horizon = N_nodes * mpc_dt
 quadmpc = QuadMPC(quad, t_horizon=t_horizon, N_nodes=N_nodes,
                 Q_cost=None, R_cost=None, opt_dt = mpc_dt, sim_dt=sim_dt,

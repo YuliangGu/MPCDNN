@@ -19,7 +19,7 @@ class Quad:
     kdh = 0.01
     
     # does not consider inputs constraints yet, add it later
-    max_thrust = 10.0
+    max_thrust = 5.0
     min_thrust = 0.0
     
     def __init__(self, noisy=False, drag=False, 
