@@ -141,3 +141,15 @@ def discretize_dynamics_and_cost(t_horizon, n_points, m_steps_per_point, X, u, d
         q = q + cost_f(X=X, u=u)['q']
 
     return cs.Function('F', [X0, u], [X, q], ['X0', 'p'], ['Xf', 'qf'])
+
+def activation(x, act):
+    if act == 'relu':
+        if isinstance(x, np.ndarray):
+            return np.maximum(0,x)
+        return cs.if_else(x < 0, 0.* x, x)
+    if act == 'linear':
+        return x
+    if act =='elu':
+        if isinstance(x, np.ndarray):
+            return np.maximum(0,x)
+        return cs.if_else(x < 0, -0.2 * x, x)

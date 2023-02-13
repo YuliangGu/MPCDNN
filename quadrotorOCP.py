@@ -1,4 +1,6 @@
 import numpy as np
+import tensorflow as tf
+from tensorflow import keras
 import casadi as cs
 from quadrotor import Quad
 from utils import *
@@ -22,7 +24,7 @@ class QuadOpt:
         self.N = control_nodes 
         
         if Q_cost is None:
-            self.Q = np.array([10.0,10.0,20.0,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05])
+            self.Q = np.array([20.0,20.0,20.0,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05])
         if R_cost is None:
             self.R = 0.5 * np.ones(4)
             
@@ -56,12 +58,15 @@ class QuadOpt:
         self.L = None
         
         # Declare model variables for NN prediction
-        self.nn_v = cs.MX.sym('nn_v', 3)
-        self.nn_W = cs.MX.sym('nn_W', 3)
-        self.nn_X = cs.vertcat(self.nn_v, self.nn_W)
+        if residual:
+            self.nn_p = cs.MX.sym('nn_p', 3)
+            self.nn_v = cs.MX.sym('nn_v', 3)
+            self.nn_quat = cs.MX.sym('nn_quat', 4)
+            self.nn_W = cs.MX.sym('nn_W', 3)
+            self.nn_X = cs.vertcat(self.nn_p, self.nn_v, self.nn_quat,self.nn_W)
         
-        # Set up models
-#         self.discrete_dynamics
+    def get_model(self, model):
+        return keras.models.load_model(model)
 
     def discretize_f_and_q(self, m):
         """
@@ -79,7 +84,6 @@ class QuadOpt:
         W_e = self.W - self.X_ref[10:]
 
         X_e = cs.vertcat(x_e,v_e,quat_e,W_e)
-        # X_e = self.X - self.X_ref
         u_e = self.u - self.u_ref
 
         state_cost = (self.Q * X_e).T @ X_e 

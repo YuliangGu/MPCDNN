@@ -11,9 +11,9 @@ x_opt = X_opt[:,:3]
 u_opt = npzfile['arr_1']
 
 """reference trajectory and controls """
-sim_dt = 0.025  #simulation sample time
+sim_dt = 0.01 #simulation sample time
 mpc_dt = 0.1   # mpc sample time
-quad = Quad(noisy=False, drag=False, 
+quad = Quad(noisy=True, drag=False, 
                 motor_noisy=False, rotor_dyn=False, quad_config='Default')
 traj_ref, t_ref, u_ref = loop_trajectory(quad,mpc_dt,plot=False,yawing=False)
 
