@@ -6,7 +6,7 @@ from quadrotor import Quad
 from utils import *
 
 class QuadOpt:   
-    def __init__(self, quad, residual = False, t_horizon = 1, control_nodes = 10,
+    def __init__(self, quad, residual = None, t_horizon = 1, control_nodes = 10,
                  Q_cost=None, R_cost = None,
                  drag = False):
         """
@@ -49,39 +49,79 @@ class QuadOpt:
         
         # Nominal model equations symbolic function (no NN)
         self.quad_xdot_nominal = self.quad_dynamics(drag)
-        
+        self.quad_xdot = self.quad_xdot_nominal
+
         # Cost and reference (to be overwritten)
         self.X_ref = None
         self.u_ref = None
         self.X_ref_traj = None
         self.u_ref_traj = None
         self.L = None
-        
-        # Declare model variables for NN prediction
-        if residual:
-            self.nn_p = cs.MX.sym('nn_p', 3)
-            self.nn_v = cs.MX.sym('nn_v', 3)
-            self.nn_quat = cs.MX.sym('nn_quat', 4)
-            self.nn_W = cs.MX.sym('nn_W', 3)
-            self.nn_X = cs.vertcat(self.nn_p, self.nn_v, self.nn_quat,self.nn_W)
-        
-    def get_model(self, model):
-        return keras.models.load_model(model)
 
+        self.mlp = None
+        self.mlp_conf = None
+
+        if residual is not None:
+            # pass the DNN model to the class
+            self.mlp = residual['model']
+            self.mlp_conf = residual['conf']
+            self.quad_xdot_aug = self.quad_dynamics_aug(self.quad_xdot_nominal(X=self.X, u=self.u)['X_dot'])
+            self.quad_xdot = self.quad_xdot_aug
+
+        # Declare model variables for NN prediction
+        self.nn_p = cs.MX.sym('nn_p', 3)
+        self.nn_v = cs.MX.sym('nn_v', 3)
+        self.nn_quat = cs.MX.sym('nn_quat', 4)
+        self.nn_W = cs.MX.sym('nn_W', 3)
+        self.nn_X = cs.vertcat(self.nn_p, self.nn_v, self.nn_quat,self.nn_W)
+
+    def linearized_quad_dynamics(self):
+        """
+        Jacobian J matrix of the linearized dynamics specified in the function quad_dynamics. J[i, j] corresponds to
+        the partial derivative of f_i(x) wrt x(j).
+        :return: a CasADi symbolic function that calculates the 13 x 13 Jacobian matrix of the linearized simplified
+        quadrotor dynamics
+        """
+
+        jac = cs.MX(self.state_dim, self.state_dim)
+
+        # Position derivatives
+        jac[0:3, 7:10] = cs.diag(cs.MX.ones(3))
+
+        # Angle derivatives
+        jac[3:7, 3:7] = skew_symmetric(self.r) / 2
+        jac[3, 10:] = 1 / 2 * cs.horzcat(-self.q[1], -self.q[2], -self.q[3])
+        jac[4, 10:] = 1 / 2 * cs.horzcat(self.q[0], -self.q[3], self.q[2])
+        jac[5, 10:] = 1 / 2 * cs.horzcat(self.q[3], self.q[0], -self.q[1])
+        jac[6, 10:] = 1 / 2 * cs.horzcat(-self.q[2], self.q[1], self.q[0])
+
+        # Velocity derivatives
+        a_u = (self.u[0] + self.u[1] + self.u[2] + self.u[3]) * self.quad.max_thrust / self.quad.mass
+        jac[7, 3:7] = 2 * cs.horzcat(a_u * self.q[2], a_u * self.q[3], a_u * self.q[0], a_u * self.q[1])
+        jac[8, 3:7] = 2 * cs.horzcat(-a_u * self.q[1], -a_u * self.q[0], a_u * self.q[3], a_u * self.q[2])
+        jac[9, 3:7] = 2 * cs.horzcat(0, -2 * a_u * self.q[1], -2 * a_u * self.q[1], 0)
+
+        # Rate derivatives
+        jac[10, 10:] = (self.quad.J[1] - self.quad.J[2]) / self.quad.J[0] * cs.horzcat(0, self.r[2], self.r[1])
+        jac[11, 10:] = (self.quad.J[2] - self.quad.J[0]) / self.quad.J[1] * cs.horzcat(self.r[2], 0, self.r[0])
+        jac[12, 10:] = (self.quad.J[0] - self.quad.J[1]) / self.quad.J[2] * cs.horzcat(self.r[1], self.r[0], 0)
+
+        return cs.Function('J', [self.x, self.u], [jac])
+        
     def discretize_f_and_q(self, m):
         """
         m: steps per control intervals
         """
-        return discretize_dynamics_and_cost(self.T, self.N, m, self.X, self.u, self.quad_xdot_nominal, self.cost_f())
+        return discretize_dynamics_and_cost(self.T, self.N, m, self.X, self.u, self.quad_xdot, self.cost_f())
         
     def cost_f(self):
         """
         Symbolic cost function given reference values
         """
-        x_e = self.x - self.X_ref[:3]
-        v_e = self.v - self.X_ref[3:6]
-        quat_e = q_dot_q(self.quat, quaternion_inverse(self.X_ref[6:10]))
-        W_e = self.W - self.X_ref[10:]
+        x_e = self.X[:3] - self.X_ref[:3]
+        v_e = self.X[3:6] - self.X_ref[3:6]
+        quat_e = q_dot_q(self.X[6:10], quaternion_inverse(self.X_ref[6:10]))
+        W_e = self.X[10:] - self.X_ref[10:]
 
         X_e = cs.vertcat(x_e,v_e,quat_e,W_e)
         u_e = self.u - self.u_ref
@@ -92,6 +132,27 @@ class QuadOpt:
         q = state_cost + control_cost
         return cs.Function('q', [self.X,self.u],[q],['X','u'],['q'])
         
+    def quad_dynamics_aug(self, nominal):
+        """
+        CasADi function of DNN augmented dynamcis
+        """
+        state = self.X
+        
+        v_b = v_dot_q(state[3:6], quaternion_inverse(state[6:10])) # convert to body frame
+        state = cs.vertcat(state[:3], v_b, state[6:])
+        mlp_input = cs.vertcat(state, self.u)
+        mlp_output = self.mlp.forward(mlp_input)
+        if self.mlp_conf['full_state']:
+            out_force_b = mlp_output[3:6]
+            out_force = v_dot_q(out_force_b, state[6:10])
+            mlp_output = cs.vertcat(mlp_output[:3],out_force, mlp_output[3:])
+        if self.mlp_conf['reduced_state']: #only learns v and W dynamics
+            out_force_b = mlp_output[:3]
+            out_force = v_dot_q(out_force_b, state[6:10])
+            mlp_output = cs.vertcat([0,0,0],mlp_output[:3],[0,0,0,0],mlp_output[3:])
+        X_dot_aug = nominal + mlp_output
+        return cs.Function('X_dot', [self.X, self.u], [X_dot_aug], ['X','u'], ['X_dot'])
+
     def quad_dynamics(self, drag):
         """
         Symbolic dynamics of the 3D quadrotor model. 
@@ -134,7 +195,7 @@ class QuadOpt:
     
     def set_reference_state(self, X_ref=None, u_ref=None):
         if X_ref is None:
-            X_ref = [[0, 0, 0], [1, 0, 0, 0], [0, 0, 0], [0, 0, 0]]
+            X_ref = [0,0,0,0,0,0,1,0,0,0,0,0,0]
         if u_ref is None:
             u_ref = [0, 0, 0, 0]   
         # convert the ref velocity to the bodyframe

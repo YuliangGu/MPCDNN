@@ -5,8 +5,8 @@ from tensorflow import keras
 
 class MLP():
     def __init__(self, my_model):
-        self.model = keras.models.load_model(my_model)
-        # self.model = model
+        # self.model = keras.models.load_model(my_model)
+        self.model = my_model
         self.num_hidden = None
 
         self.weights = []
