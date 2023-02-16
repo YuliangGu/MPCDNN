@@ -1,3 +1,0 @@
-solver: ipopt
-noise level: 10 * dt
-control nodes: 4

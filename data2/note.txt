@@ -1,6 +1,0 @@
-solver: sqp
-noise level: 7 * dt
-control nodes: 5
-
-Solve failed to converge in some trials when n = 5
-works better when n = 4 (0.4s time horizon)
