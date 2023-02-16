@@ -1,0 +1,6 @@
+noise level: 7
+rotor dyn: True
+drag force: True
+torque and force noise: True
+control nodes: 4
+
